@@ -19,10 +19,10 @@ distribution **Solus**. Trois fournisseurs sont pris en charge, un par onglet
 | **Zen** | noyau `linux-zen` | dépôt `extra` d'Arch Linux |
 | **Liquorix** | noyau `linux-lqx` | `liquorix.net` |
 
-L'interface présente **trois onglets en haut** (un par fournisseur) et une
-**zone commune en bas** : la liste des noyaux installés, les actions
-d'installation / suppression, le noyau de démarrage (systemd-boot) et le
-journal d'activité.
+L'interface présente **trois onglets en haut** (un par fournisseur), chacun
+portant ses propres boutons **Actualiser / Installer / Supprimer** ; la zone
+commune en bas rassemble la liste des noyaux installés, le noyau de
+démarrage (systemd-boot) et le journal d'activité.
 
 ### Ce que fait l'application
 
@@ -51,9 +51,15 @@ Prérequis sur la machine cible : **Qt6 Base** (fourni par le système Solus),
 `/boot`**.
 
 ```bash
-# Installer depuis le dépôt Gitea
-sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.1-1-1-x86_64.eopkg
+# Installer depuis le dépôt eopkg « linuxon » (recommandé)
+sudo eopkg install -y solus-external-kernel-manager
+
+# … ou directement depuis le dépôt Gitea
+sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.1-2-1-x86_64.eopkg
 ```
+
+Le paquet est publié dans le dépôt eopkg personnel `linuxon`
+(Gitea `Linuxon/eopkg-repo` ; déjà configuré sur vos machines).
 
 Puis lancer « Solus External Kernel Manager » depuis le menu d'applications.
 
@@ -83,6 +89,9 @@ solus-external-kernel-manager --fetch-test --download
 # Installer un noyau sans GUI (mot de passe root via variable)
 SEKM_SUDO_PASS=*** solus-external-kernel-manager --install liquorix
 #    <kind> ∈ { cachyos | zen | liquorix }
+
+# Lister les noyaux externes installés
+solus-external-kernel-manager --list
 ```
 
 ### Notes techniques / sécurité
@@ -124,9 +133,9 @@ distribution. Three providers are supported, one per tab:
 | **Zen** | `linux-zen` kernel | Arch Linux `extra` repository |
 | **Liquorix** | `linux-lqx` kernel | `liquorix.net` |
 
-The UI shows **three tabs on top** (one per provider) and a **shared area
-below**: the list of installed kernels, install/remove actions, the boot
-kernel (systemd-boot) and an activity log.
+The UI shows **three tabs on top** (one per provider), each with its own
+**Refresh / Install / Remove** buttons; the shared area below holds the
+installed-kernels list, the boot kernel (systemd-boot) and an activity log.
 
 ### What the application does
 
@@ -155,9 +164,15 @@ Prerequisites on the target machine: **Qt6 Base** (provided by Solus),
 `/boot`**.
 
 ```bash
-# Install from the Gitea repository
-sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.1-1-1-x86_64.eopkg
+# Install from the personal eopkg repo "linuxon" (recommended)
+sudo eopkg install -y solus-external-kernel-manager
+
+# … or directly from the Gitea repository
+sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.1-2-1-x86_64.eopkg
 ```
+
+The package is published in the personal `linuxon` eopkg repository
+(Gitea `Linuxon/eopkg-repo`; already configured on your machines).
 
 Then launch "Solus External Kernel Manager" from the application menu.
 
@@ -187,6 +202,9 @@ solus-external-kernel-manager --fetch-test --download
 # Install a kernel without the GUI (root password via environment)
 SEKM_SUDO_PASS=*** solus-external-kernel-manager --install liquorix
 #    <kind> ∈ { cachyos | zen | liquorix }
+
+# List installed external kernels
+solus-external-kernel-manager --list
 ```
 
 ### Technical / security notes

@@ -31,7 +31,7 @@ OUT_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
 
 PACKAGE_NAME   = "solus-external-kernel-manager"
 VERSION        = "0.1.1"
-RELEASE        = 1
+RELEASE        = 2
 DIST_RELEASE   = 1
 ARCH           = "x86_64"
 DIST_NAME      = "Solus"
@@ -205,8 +205,15 @@ or Liquorix.""")}</Description>
         <PartOf>{PART_OF}</PartOf>
         <License>GPL-3.0-or-later</License>
 {deps_xml}        <History>
-            <Update release="{RELEASE}">
+            <Update release="2">
                 <Date>{today}</Date>
+                <Version>{VERSION}</Version>
+                <Comment>{PACKAGE_NAME} {VERSION} rel2 : option CLI --list</Comment>
+                <Name>{PACKAGER_NAME}</Name>
+                <Email>{PACKAGER_EMAIL}</Email>
+            </Update>
+            <Update release="1">
+                <Date>2026-10-26</Date>
                 <Version>{VERSION}</Version>
                 <Comment>{PACKAGE_NAME} {VERSION} : fix Zen listing/removal (registry + modern module names), per-tab actions</Comment>
                 <Name>{PACKAGER_NAME}</Name>

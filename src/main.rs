@@ -750,6 +750,34 @@ fn main() {
         std::process::exit(run_cli_install(kind, &pw));
     }
 
+    // Mode liste CLI (sans GUI) : `sekm --list` — liste les noyaux externes
+    // installés selon le même code que l'UI (registre + repli par nom).
+    if args.iter().any(|a| a == "--list") {
+        let running = crate::sysutil::running_kernel();
+        let inst = list_installed();
+        if inst.is_empty() {
+            println!("Aucun noyau externe installé.");
+        } else {
+            println!("Noyaux externes installés (en cours : {}):", running);
+            for k in &inst {
+                println!(
+                    "  [{}] {}  version: {}  display: {}  modules: {}",
+                    if k.running { "RUNNING" } else { "..." },
+                    k.kind.label(),
+                    k.version,
+                    k.display_version,
+                    k.path.modules.display()
+                );
+            }
+        }
+        // Le nom des fichiers ESP correspondants (vérifiable par l'utilisateur).
+        println!("\nEntrées de boot liées :");
+        for k in &inst {
+            println!("  {}", k.path.boot_entry.display());
+        }
+        std::process::exit(0);
+    }
+
     if args.iter().any(|a| a == "--fetch-test") {
         let do_download = args.iter().any(|a| a == "--download");
         let kinds: [KernelKind; 3] = [
