@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Solus External Kernel Manager
+GenericName=Kernel Manager
+Comment=Install and manage external kernels (CachyOS, Zen, Liquorix)
+Comment[fr]=Installer et gérer les noyaux externes (CachyOS, Zen, Liquorix)
+Exec=solus-external-kernel-manager
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Qt;
+Keywords=kernel;cachyos;zen;liquorix;
+Keywords[fr]=noyau;cachyos;zen;liquorix;

@@ -1,0 +1,9 @@
+/target
+/Cargo.lock
+# binaire brut compilé (non-source) ; embarqué dans le .eopkg
+/solus-external-kernel-manager
+# scripts de test locaux
+/deploy_bin.sh
+/shot.sh
+__pycache__/
+*.pyc
