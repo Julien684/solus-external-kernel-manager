@@ -54,12 +54,12 @@ Prérequis sur la machine cible : **Qt6 Base** (fourni par le système Solus),
 # Installer depuis le dépôt eopkg « linuxon » (recommandé)
 sudo eopkg install -y solus-external-kernel-manager
 
-# … ou directement depuis le dépôt Gitea
-sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.1-2-1-x86_64.eopkg
+# … ou directement depuis le dépôt GitHub
+sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-2-1-x86_64.eopkg
 ```
 
 Le paquet est publié dans le dépôt eopkg personnel `linuxon`
-(Gitea `Linuxon/eopkg-repo` ; déjà configuré sur vos machines).
+(GitHub `Julien684/eopkg-repo` ; déjà configuré sur vos machines).
 
 Puis lancer « Solus External Kernel Manager » depuis le menu d'applications.
 
@@ -167,12 +167,12 @@ Prerequisites on the target machine: **Qt6 Base** (provided by Solus),
 # Install from the personal eopkg repo "linuxon" (recommended)
 sudo eopkg install -y solus-external-kernel-manager
 
-# … or directly from the Gitea repository
-sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.1-2-1-x86_64.eopkg
+# … or directly from the GitHub repository
+sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-2-1-x86_64.eopkg
 ```
 
 The package is published in the personal `linuxon` eopkg repository
-(Gitea `Linuxon/eopkg-repo`; already configured on your machines).
+(GitHub `Julien684/eopkg-repo`; already configured on your machines).
 
 Then launch "Solus External Kernel Manager" from the application menu.
 
