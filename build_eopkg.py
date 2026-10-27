@@ -30,7 +30,7 @@ SRC_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".")
 OUT_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
 
 PACKAGE_NAME   = "solus-external-kernel-manager"
-VERSION        = "0.1.0"
+VERSION        = "0.1.1"
 RELEASE        = 1
 DIST_RELEASE   = 1
 ARCH           = "x86_64"
@@ -208,7 +208,7 @@ or Liquorix.""")}</Description>
             <Update release="{RELEASE}">
                 <Date>{today}</Date>
                 <Version>{VERSION}</Version>
-                <Comment>{PACKAGE_NAME} {VERSION} initial package</Comment>
+                <Comment>{PACKAGE_NAME} {VERSION} : fix Zen listing/removal (registry + modern module names), per-tab actions</Comment>
                 <Name>{PACKAGER_NAME}</Name>
                 <Email>{PACKAGER_EMAIL}</Email>
             </Update>

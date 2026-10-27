@@ -75,6 +75,134 @@ pub fn kernel_vendor_dir(kernel_version: &str) -> String {
     }
 }
 
+/// Suffixe « legacy » — déduction du type d'un noyau **d'après son nom de
+/// dossier modules** (sans le registre d'installation).
+///
+/// NOTE : ne marche qu'avec les noms de dossiers « classiques »
+/// (`…-cachyos`, `…zen…`, `…-lqx`). Les paquets pacman récents nomment le
+/// dossier modules avec le release pacman complet, ex.
+/// `7.2.11-zen1-1-zen` (sans point avant `zen`) → non reconnu. La source de
+/// vérité est donc le registre [`registry_path`], alimenté à l'installation.
+#[allow(dead_code)]
+pub fn legacy_kernel_suffix(name: &str) -> String {
+    let v = name.to_ascii_lowercase();
+    if let Some(i) = v.rfind("-cachyos") {
+        return v[i..].to_string();
+    }
+    if v.contains("zen") {
+        return "zen".to_string();
+    }
+    if let Some(i) = v.rfind("-lqx") {
+        return v[i..].to_string();
+    }
+    String::new()
+}
+
+/// Devine le type du noyau à partir de son nom de dossier modules (repli
+/// quand le registre n'a pas d'entrée — noyaux installés par une ancienne
+/// version sans registre).
+///
+/// `7.3.0-4-cachyos` → CachyOS, `7.2.11-zen1-1-zen` → Zen,
+/// `7.2.12-lqx1-1-lqx` → Liquorix. `None` si inconnu.
+pub fn guess_kind(name: &str) -> Option<crate::repo::KernelKind> {
+    use crate::repo::KernelKind;
+    let v = name.to_ascii_lowercase();
+    if v.contains("cachyos") {
+        Some(KernelKind::Cachyos)
+    } else if v.contains("zen") {
+        Some(KernelKind::Zen)
+    } else if v.contains("lqx") {
+        Some(KernelKind::Liquorix)
+    } else {
+        None
+    }
+}
+
+// ----------------------------------------------------------------------
+// Registre d'installation
+// ----------------------------------------------------------------------
+//
+// Les noms de dossiers `/lib/modules/<…>` des paquets pacman récents ne laissent
+// pas deviner le fournisseur (ex. `7.2.11-zen1-1-zen` pour Zen). Pour pouvoir
+// LISTER et SUPPRIMER fiablement les noyaux installés, l'application tient un
+// petit registre JSON : `{"<nom modules>": "kind"}`.
+//  - écrit à chaque installation (`record_install`) ;
+// - consulté par `list_installed` et `remove_kernel` ;
+// - nettoyé à la suppression (`forget_install`).
+
+use std::collections::HashMap;
+
+/// Chemin du registre d'installation.
+pub fn registry_path() -> PathBuf {
+    state_dir().join("registry.json")
+}
+
+/// Une entrée du registre : le type du noyau + sa version d'affichage
+/// (celle du dépôt pacman, ex. `7.2.11.zen1`), distincte du nom du dossier
+/// modules (`7.2.11-zen1-1-zen`).
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct RegistryEntry {
+    pub kind: String,
+    #[serde(default)]
+    pub display: Option<String>,
+}
+
+/// Lit le registre ; `{}` s'il est absent ou illisible.
+pub fn read_registry() -> HashMap<String, RegistryEntry> {
+    let content = match fs::read_to_string(registry_path()) {
+        Ok(c) => c,
+        Err(_) => return HashMap::new(),
+    };
+    serde_json::from_str::<HashMap<String, RegistryEntry>>(&content)
+        .unwrap_or_default()
+}
+
+/// Écrit le registre atomiquement (tmp + rename).
+fn write_registry(map: &HashMap<String, RegistryEntry>) {
+    let path = registry_path();
+    let tmp = path.with_extension("json.tmp");
+    if let Ok(json) = serde_json::to_string_pretty(map) {
+        let _ = fs::write(&tmp, json + "\n");
+        let _ = fs::rename(&tmp, path);
+    }
+}
+
+/// Enregistre qu'un noyau (nom de dossier modules `name`) a été installé.
+/// `display` est la version d'affichage du dépôt (ex. `7.2.11.zen1`) —
+/// sert à marquer « installée » dans la table des versions.
+pub fn record_install(name: &str, kind: crate::repo::KernelKind, display: Option<&str>) {
+    let mut map = read_registry();
+    map.insert(
+        name.to_string(),
+        RegistryEntry {
+            kind: kind.label().to_string(),
+            display: display.map(|s| s.to_string()),
+        },
+    );
+    write_registry(&map);
+}
+
+/// Type d'un noyau installé, d'après le registre.
+pub fn registry_kind(name: &str) -> Option<crate::repo::KernelKind> {
+    read_registry()
+        .get(name)
+        .and_then(|e| crate::repo::KernelKind::from_label(e.kind.as_str()))
+}
+
+/// Version d'affichage enregistrée (None si absente).
+#[allow(dead_code)]
+pub fn registry_display(name: &str) -> Option<String> {
+    read_registry().get(name).and_then(|e| e.display.clone())
+}
+
+/// Ote une entrée du registre (après suppression).
+pub fn forget_install(name: &str) {
+    let mut map = read_registry();
+    if map.remove(name).is_some() {
+        write_registry(&map);
+    }
+}
+
 /// Chemins d'installation d'un noyau externe (version `v`).
 pub struct KernelPaths {
     pub vmlinuz: PathBuf,
@@ -122,12 +250,17 @@ impl KernelPaths {
 /// (`clr-boot-manager` ne le monte qu'à la demande). Lire /boot faisait donc
 /// apparaître une liste vide alors que le noyau était bien installé —
 /// impossible de le sélectionner pour suppression quand on tourne sur Solus.
+///
+/// Le filtrage « noyau externe » passe par [`guess_kind`], qui reconnaît les
+/// noms de dossiers pacman récents (`7.2.11-zen1-1-zen`, …) ; le simple
+/// `kernel_suffix` (heuristique legacy) les ratait — c'était le bug « Zen
+/// invisible dans la liste ».
 pub fn installed_ext_kernels() -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(dir) = fs::read_dir("/lib/modules") {
         for e in dir.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if e.path().is_dir() && !kernel_suffix(&name).is_empty() {
+            if e.path().is_dir() && guess_kind(&name).is_some() {
                 out.push(name);
             }
         }
@@ -137,6 +270,7 @@ pub fn installed_ext_kernels() -> Vec<String> {
 }
 
 /// Sous-ensemble des noyaux installés partageant le même type (suffixe).
+#[allow(dead_code)]
 pub fn installed_ext_kernels_suffix(sample_kernel_version: &str) -> Vec<String> {
     let s = kernel_suffix(sample_kernel_version);
     if s.is_empty() {
@@ -428,5 +562,42 @@ mod tests {
     fn running_kernel_is_not_empty() {
         let r = running_kernel();
         assert!(!r.is_empty());
+    }
+
+    #[test]
+    fn guess_kind_recognizes_modern_pacman_dirs() {
+        use crate::repo::KernelKind;
+        assert_eq!(guess_kind("7.3.0-4-cachyos"), Some(KernelKind::Cachyos));
+        assert_eq!(guess_kind("7.2.11-zen1-1-zen"), Some(KernelKind::Zen));
+        assert_eq!(guess_kind("7.2.11.zen1"), Some(KernelKind::Zen));
+        assert_eq!(guess_kind("7.2.12-lqx1-1-lqx"), Some(KernelKind::Liquorix));
+        assert_eq!(guess_kind("7.2.12.lqx1-lqx"), Some(KernelKind::Liquorix));
+        assert_eq!(guess_kind("5.15.0-1"), None);
+        assert_eq!(guess_kind("7.2.11-366.current"), None);
+    }
+
+    #[test]
+    fn registry_roundtrip_in_tempdir() {
+        use crate::repo::KernelKind;
+        // On pointe le home vers un tmp pour isoler le registre.
+        let tmp = std::env::temp_dir().join(format!("sekm-registry-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("HOME", &tmp);
+        let reg = registry_path();
+        assert!(!reg.exists());
+        assert!(read_registry().is_empty());
+        record_install("7.2.11-zen1-1-zen", KernelKind::Zen, Some("7.2.11.zen1"));
+        assert_eq!(
+            registry_kind("7.2.11-zen1-1-zen"),
+            Some(KernelKind::Zen)
+        );
+        let r = read_registry();
+        let e = r.get("7.2.11-zen1-1-zen").unwrap();
+        assert_eq!(e.kind, "Zen");
+        assert_eq!(e.display.as_deref(), Some("7.2.11.zen1"));
+        forget_install("7.2.11-zen1-1-zen");
+        assert!(read_registry().is_empty());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

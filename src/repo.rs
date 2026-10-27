@@ -69,6 +69,15 @@ impl KernelKind {
             KernelKind::Liquorix => "Liquorix",
         }
     }
+    /// Reconstruit un `KernelKind` depuis son libellé (registre).
+    pub fn from_label(s: &str) -> Option<Self> {
+        match s {
+            "CachyOS" => Some(KernelKind::Cachyos),
+            "Zen" => Some(KernelKind::Zen),
+            "Liquorix" => Some(KernelKind::Liquorix),
+            _ => None,
+        }
+    }
 }
 
 /// Format de compression d'une base pacman-db.

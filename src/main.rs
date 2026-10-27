@@ -1,9 +1,11 @@
 //! Solus External Kernel Manager — GUI Qt6 (via `qtrs`) : installer/supprimer
 //! les noyaux externes (CachyOS, Zen, Liquorix) sur Solus.
 //!
-//! Trois onglets en haut, un par noyau (CachyOS / Zen / Liquorix). La partie
-//! « noyaux installés », « démarrage systemd-boot » et « journal » est
-//! commune en bas des trois onglets.
+//! Trois onglets en haut, un par noyau (CachyOS / Zen / Liquorix). Chaque
+//! onglet contient sa table de versions disponibles **et ses boutons**
+//! (Actualiser / Installer / Supprimer). La zone commune en bas rassemble la
+//! liste des « noyaux installés », le démarrage systemd-boot, la barre de
+//! progression et le journal.
 //!
 //! Modèle d'ownership qtrs (validé par l'exemple `editor` du crate) :
 //!  - La fenêtre (MainWindow) est dans `Rc<RefCell<..>>` (clonable dans les
@@ -384,22 +386,28 @@ struct Handles {
 struct Layouts {
     root: VBoxLayout,
     avail: [VBoxLayout; 3],
+    /// Layouts des boutons d'actions de chaque onglet (retenus en vie — voir
+    /// `build_tab_page`).
+    actions: [HBoxLayout; 3],
     inst: VBoxLayout,
     boot: VBoxLayout,
     boot_row: HBoxLayout,
-    actions_row: [HBoxLayout; 3],
     bar_row: HBoxLayout,
 }
 
 /// Construit une page d'onglet pour un noyau donnée : la table des versions
-/// disponibles dans un ScrollArea. Retourne le widget page ET son layout (à
-/// retenir en vie, voir `Layouts` — un layout dropé supprimerait son C++ et
-/// orphelinerait les widgets).
+/// disponibles dans un ScrollArea, **suivie des boutons d'actions** (Actualiser
+/// / Installer / Supprimer) propres à ce noyau. Retourne le widget page, son
+/// layout ET le layout des actions (à retenir en vie, voir `Layouts` — un
+/// layout dropé supprimerait son C++ et orphelinerait les boutons).
 fn build_tab_page(
     kind: KernelKind,
     table: &Rc<RefCell<TableWidget>>,
+    kernels: &Rc<RefCell<Vec<KernelRelease>>>,
+    tag: u8,
+    shared: &SharedUi,
     wp: &dyn AsWidget,
-) -> (Widget, VBoxLayout) {
+) -> (Widget, VBoxLayout, HBoxLayout) {
     let page = Widget::new().build();
     let mut l = VBoxLayout::with_parent(&page);
     l.set_contents_margins(8, 8, 8, 8);
@@ -408,7 +416,17 @@ fn build_tab_page(
         Label::new(&format!("Versions disponibles — noyaux {}", kind.label())).build(),
     );
     l.add(wrap_scroll(table, wp));
-    (page, l)
+    // Les actions vivent DANS l'onglet (et non dans une zone commune en bas)
+    // : chaque noyau a ses 3 boutons, on gagne de la place verticale.
+    // Un layout n'est pas un widget (pas `AsWidget`) : on l'installe sur un
+    // widget-conteneur parenté par la page, puis on ajoute ce widget. Le
+    // layout lui-même est retenu dans `Layouts` (sinon son `Drop` supprimerait
+    // le C++ et orphelinerait les boutons).
+    let mut actions_row_w = Widget::new().parent(&page).build();
+    let actions_l = build_actions(tag, kind, table, kernels, &actions_row_w, shared);
+    actions_row_w.set_layout(&actions_l);
+    l.add(actions_row_w);
+    (page, l, actions_l)
 }
 
 fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Handles {
@@ -506,9 +524,16 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
         .parent(wp)
         .build();
     let mut avail_l_res = [VBoxLayout::new(), VBoxLayout::new(), VBoxLayout::new()];
+    let mut actions_l_res = [
+        HBoxLayout::new(),
+        HBoxLayout::new(),
+        HBoxLayout::new(),
+    ];
     for i in 0..3 {
-        let (page, l) = build_tab_page(kinds[i], &tables_arr[i], wp);
+        let (page, l, al) =
+            build_tab_page(kinds[i], &tables_arr[i], &kernel_lists[i], i as u8, &shared, wp);
         avail_l_res[i] = l;
+        actions_l_res[i] = al;
         tabs.add_tab(Box::new(page), kinds[i].label());
     }
     root.add(tabs);
@@ -610,30 +635,6 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
     boot_l.add(boot_row_w);
     root.add(boot_box);
 
-    // Groupes « actions » (un par noyau, communs — placés en bas).
-    // Chaque GroupBox est parenté (C++ géré par Qt) puis transféré au layout
-    // `root` via `add_widget` ; aucun besoin de le conserver côté Rust.
-    let mut actions_rows: [HBoxLayout; 3] = [
-        HBoxLayout::new(),
-        HBoxLayout::new(),
-        HBoxLayout::new(),
-    ];
-    for i in 0..3 {
-        let actions_box = GroupBox::new(&format!("Actions — {}", kinds[i].label()))
-            .parent(wp)
-            .build();
-        let row = build_actions(
-            i as u8,
-            kinds[i],
-            &tables_arr[i],
-            &kernel_lists[i],
-            &actions_box,
-            &shared,
-        );
-        actions_rows[i] = row;
-        root.add_widget(Box::new(actions_box));
-    }
-
     // Barre de progression + statut (communs).
     let bar_row_w = Widget::new().parent(wp).build();
     let mut bar_row_l = HBoxLayout::with_parent(&bar_row_w);
@@ -664,10 +665,10 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
         layouts: Layouts {
             root,
             avail: avail_l_res,
+            actions: actions_l_res,
             inst: inst_l,
             boot: boot_l,
             boot_row: boot_row_l,
-            actions_row: actions_rows,
             bar_row: bar_row_l,
         },
         menubar,
@@ -855,8 +856,10 @@ fn main() {
                             t_guard.set_row_count(n);
                             for (i, k) in fetched.iter().enumerate() {
                                 let size = format!("{:.0}", k.csize as f64 / 1_048_576.0);
-                                let is_installed =
-                                    installed.iter().any(|x| x.version == k.kernel_version);
+                                let is_installed = installed
+                                    .iter()
+                                    .any(|x| x.version == k.kernel_version
+                                        || x.display_version == k.kernel_version);
                                 t_guard.set_item(i as i32, 0, &k.version);
                                 t_guard.set_item(i as i32, 1, &k.kernel_version);
                                 t_guard.set_item(i as i32, 2, &k.sha256);

@@ -247,6 +247,12 @@ pub fn install_kernel(
         return Err("sync a échoué".into());
     }
 
+    // Registre d'installation : le nom du dossier modules fait foi du type,
+    // même si le nom du dossier ne se devine pas (ex. `7.2.11-zen1-1-zen`).
+    // On y stocke aussi la version d'affichage (utile pour marquer
+    // « installée » dans la table des versions).
+    crate::sysutil::record_install(k, kind, Some(kernel_version));
+
     // Nettoyage du tmp.
     let _ = fs::remove_dir_all(&tmp);
 
@@ -291,7 +297,12 @@ pub fn remove_kernel(password: &str, kernel_version: &str) -> Result<(), String>
         return Err("Impossible : c'est le noyau en cours d'exécution.".into());
     }
     ensure_boot_mounted(password)?;
-    let kp = KernelPaths::for_version(kernel_version);
+    // Le type est lu dans le registre (source de vérité — les noms de
+    // dossiers modules ne se devinent plus) ; repli sur la déduction legacy.
+    let kind = crate::sysutil::registry_kind(kernel_version)
+        .or_else(|| crate::sysutil::guess_kind(kernel_version))
+        .unwrap_or(KernelKind::Zen);
+    let kp = KernelPaths::for_kernel(kernel_version, kind);
 
     for f in [&kp.vmlinuz, &kp.initrd, &kp.boot_entry] {
         if f.exists() {
@@ -305,6 +316,7 @@ pub fn remove_kernel(password: &str, kernel_version: &str) -> Result<(), String>
     if code != 0 {
         return Err(format!("Suppression /lib/modules/{} : {}", kernel_version, err.trim()));
     }
+    crate::sysutil::forget_install(kernel_version);
     run_sudo(password, "sync", &[]);
     log(&format!("Noyau {} supprimé ✓", kernel_version));
     Ok(())
@@ -312,24 +324,46 @@ pub fn remove_kernel(password: &str, kernel_version: &str) -> Result<(), String>
 
 /// Un noyau externe installé + celui en cours d'exécution.
 pub struct InstalledKernel {
+    /// Nom du dossier modules (= `uname -r` du noyau, ex.
+    /// `7.2.11-zen1-1-zen`). Identifiant unique pour lister/supprimer.
     pub version: String,
+    /// Version d'affichage issue du registre (celle du dépôt, ex.
+    /// `7.2.11.zen1`) — sert à marquer « installée » dans la table.
+    /// Égal à `version` pour les noyaux installés sans registre.
+    pub display_version: String,
     pub running: bool,
-    /// Type de noyau (CachyOS / Zen / Liquorix), déduit de la version.
+    /// Type de noyau (CachyOS / Zen / Liquorix).
     pub kind: KernelKind,
     #[allow(dead_code)]
     pub path: KernelPaths,
 }
 
 /// Liste des noyaux externes installés (tous types) + celui en cours.
+///
+/// Le type de chaque noyau est lu dans le **registre d'installation**
+/// (`~/.local/state/…/registry.json`, écrit à chaque install) ; les noyaux
+/// installés par une ancienne version sans registre (ou non détectables)
+/// retombent sur la déduction par nom de dossier.
 pub fn list_installed() -> Vec<InstalledKernel> {
     let running = crate::sysutil::running_kernel();
+    let registry = crate::sysutil::read_registry();
     crate::sysutil::installed_ext_kernels()
         .into_iter()
-        .map(|v| InstalledKernel {
-            kind: kind_from_version(&v),
-            version: v.clone(),
-            running: v == running,
-            path: KernelPaths::for_version(&v),
+        .filter_map(|v| {
+            let entry = registry.get(&v);
+            let kind = entry
+                .and_then(|e| KernelKind::from_label(e.kind.as_str()))
+                .or_else(|| crate::sysutil::guess_kind(&v))?;
+            let display_version = entry
+                .and_then(|e| e.display.clone())
+                .unwrap_or_else(|| v.clone());
+            Some(InstalledKernel {
+                path: KernelPaths::for_kernel(&v, kind),
+                running: v == running,
+                kind,
+                version: v,
+                display_version,
+            })
         })
         .collect()
 }
@@ -337,24 +371,8 @@ pub fn list_installed() -> Vec<InstalledKernel> {
 /// Liste des noyaux installés d'un type donné (par version-échantillon).
 #[allow(dead_code)]
 pub fn list_installed_kind(sample: &str) -> Vec<InstalledKernel> {
-    let running = crate::sysutil::running_kernel();
-    crate::sysutil::installed_ext_kernels_suffix(sample)
-        .into_iter()
-        .map(|v| InstalledKernel {
-            kind: kind_from_version(&v),
-            version: v.clone(),
-            running: v == running,
-            path: KernelPaths::for_version(&v),
-        })
-        .collect()
-}
-
-/// Déduit le [`KernelKind`] d'une version de noyau installée.
-pub fn kind_from_version(v: &str) -> KernelKind {
-    match crate::sysutil::kernel_suffix(v).as_str() {
-        s if s.contains("cachyos") => KernelKind::Cachyos,
-        s if s.contains("zen") => KernelKind::Zen,
-        s if s.contains("lqx") => KernelKind::Liquorix,
-        _ => KernelKind::Cachyos,
-    }
+    let wanted = crate::sysutil::guess_kind(sample);
+    list_installed().into_iter().filter(|k| {
+        wanted.as_ref().map(|w| w == &k.kind).unwrap_or(true)
+    }).collect()
 }

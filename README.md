@@ -52,7 +52,7 @@ Prérequis sur la machine cible : **Qt6 Base** (fourni par le système Solus),
 
 ```bash
 # Installer depuis le dépôt Gitea
-sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.0-1-1-x86_64.eopkg
+sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.1-1-1-x86_64.eopkg
 ```
 
 Puis lancer « Solus External Kernel Manager » depuis le menu d'applications.
@@ -156,7 +156,7 @@ Prerequisites on the target machine: **Qt6 Base** (provided by Solus),
 
 ```bash
 # Install from the Gitea repository
-sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.0-1-1-x86_64.eopkg
+sudo eopkg install -y https://depoa.julien68.fr/Linuxon/solus-external-kernel-manager/raw/branch/main/solus-external-kernel-manager-0.1.1-1-1-x86_64.eopkg
 ```
 
 Then launch "Solus External Kernel Manager" from the application menu.
