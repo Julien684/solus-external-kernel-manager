@@ -36,6 +36,50 @@ pub fn log(line: &str) {
     }
 }
 
+/// Espace disponible sur la partition `/boot`.
+///
+/// Retourne `(total, libre)` en octets, ou `None` si `/boot` n'est pas monté
+/// ou si `statfs` échoue. Séparé pour tests : le calcul est dans
+/// `free_in_statfs` / `total_in_statfs` (pures), l'enveloppe système est ici.
+pub fn boot_disk_free() -> Option<(u64, u64)> {
+    let st = nix_statfs()?;
+    Some((total_in_statfs(&st), free_in_statfs(&st)))
+}
+
+/// Espace libre (octets) : `f_bavail` (blocs non-root) × taille du bloc.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn free_in_statfs(st: &Statfs) -> u64 {
+    st.f_bavail.max(0) as u64 * st.f_bsize.max(0) as u64
+}
+
+/// Capacité totale (octets) : `f_blocks` × taille du bloc.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn total_in_statfs(st: &Statfs) -> u64 {
+    st.f_blocks.max(0) as u64 * st.f_bsize.max(0) as u64
+}
+
+#[derive(Debug)]
+pub(crate) struct Statfs {
+    pub f_bsize: i64,   // taille d'un bloc (octets)
+    pub f_bavail: i64,  // blocs disponibles pour un utilisateur (non-root)
+    pub f_blocks: i64,  // blocs au total
+}
+
+/// Lecture `statvfs` de `/boot` via libc.
+fn nix_statfs() -> Option<Statfs> {
+    let mut sv: libc::statvfs = unsafe { std::mem::zeroed() };
+    let cpath = std::ffi::CString::new("/boot").ok()?;
+    let r = unsafe { libc::statvfs(cpath.as_ptr(), &mut sv) };
+    if r != 0 {
+        return None;
+    }
+    Some(Statfs {
+        f_bsize: sv.f_bsize as i64,
+        f_bavail: sv.f_bavail as i64,
+        f_blocks: sv.f_blocks as i64,
+    })
+}
+
 /// Version du noyau en cours d'exécution (ex. `7.2.11-366.current`).
 pub fn running_kernel() -> String {
     std::fs::read_to_string("/proc/sys/kernel/osrelease")
@@ -508,6 +552,50 @@ pub fn run(cmd: &str, args: &[&str]) -> (i32, String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn st(bsize: i64, bavail: i64, blocks: i64) -> Statfs {
+        Statfs { f_bsize: bsize, f_bavail: bavail, f_blocks: blocks }
+    }
+
+    #[test]
+    fn free_in_statfs_multiplies_bsize_by_bavail() {
+        // 4096 o/bloc × 100 blocs = 409 600 octets libres.
+        assert_eq!(free_in_statfs(&st(4096, 100, 200)), 409_600);
+    }
+
+    #[test]
+    fn free_in_statfs_zero_when_no_blocks() {
+        assert_eq!(free_in_statfs(&st(4096, 0, 200)), 0);
+    }
+
+    #[test]
+    fn free_in_statfs_large_partition() {
+        // 1 Go libres, blocs de 4 Ko : 262 144 blocs.
+        assert_eq!(free_in_statfs(&st(4096, 262_144, 500_000)), 1_073_741_824);
+    }
+
+    #[test]
+    fn total_in_statfs_multiplies_bsize_by_blocks() {
+        assert_eq!(total_in_statfs(&st(4096, 100, 200)), 819_200);
+        assert_eq!(total_in_statfs(&st(4096, 100, 0)), 0);
+    }
+
+    #[test]
+    fn free_never_exceeds_total() {
+        let s = st(4096, 100, 200);
+        assert!(free_in_statfs(&s) <= total_in_statfs(&s));
+    }
+
+    #[test]
+    fn boot_disk_free_reports_the_mount_of_boot() {
+        // /boot existe toujours sur une machine testée. L'assertion forte est
+        // « cohérent » : si la fonction renvoie Some, total ≥ libre > 0.
+        if let Some((total, free)) = boot_disk_free() {
+            assert!(free > 0, "libre doit être strictement positif");
+            assert!(total >= free, "total ≥ libre");
+        }
+        // système sans /boot monté — légal (container).
+    }
 
     #[test]
     fn timeout_output_converts_seconds() {

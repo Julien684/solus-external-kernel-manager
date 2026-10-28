@@ -74,6 +74,23 @@ fn append_log(logw: &Rc<RefCell<PlainTextEdit>>, line: &str) {
     logw.borrow_mut().append_plain_text(&format!("[{}] {}\n", ts, line));
 }
 
+/// Formatage « taille humaine » (o / Ko / Mo / Go / To, base 1024).
+/// Testé unitairement dans `mod tests`.
+fn fmt_bytes(n: u64) -> String {
+    const UNITS: [&str; 5] = ["o", "Ko", "Mo", "Go", "To"];
+    let mut v = n as f64;
+    let mut u = 0;
+    while v >= 1024.0 && u < UNITS.len() - 1 {
+        v /= 1024.0;
+        u += 1;
+    }
+    if u == 0 {
+        format!("{} {}", n, UNITS[0])
+    } else {
+        format!("{:.1} {}", v, UNITS[u])
+    }
+}
+
 /// Référence aux widgets partagés (utilisée par les closures boutons).
 struct SharedUi {
     tx: mpsc::Sender<WorkerMsg>,
@@ -360,6 +377,11 @@ struct Handles {
     kernel_lists: [Rc<RefCell<Vec<KernelRelease>>>; 3],
     list: Rc<RefCell<ListWidget>>,
     bar: Rc<RefCell<ProgressBar>>,
+    /// Jauge « espace libre /boot » (barre de progression, valeur en %).
+    /// Retenu en vie (le `Drop` du wrapper ne supprime pas le C++ car
+    /// `set_has_parent`, mais on le garde pour éviter tout doublon).
+    #[allow(dead_code)]
+    free_bar: Rc<RefCell<ProgressBar>>,
     status: Rc<RefCell<Label>>,
     logw: Rc<RefCell<PlainTextEdit>>,
     /// CRITIQUE : les layouts qtrs sont supprimés en C++ dans leur `Drop`.
@@ -393,6 +415,8 @@ struct Layouts {
     boot: VBoxLayout,
     boot_row: HBoxLayout,
     bar_row: HBoxLayout,
+    /// Ligne de la jauge « espace libre /boot » (label + barre).
+    free_row: HBoxLayout,
 }
 
 /// Construit une page d'onglet pour un noyau donnée : la table des versions
@@ -557,6 +581,44 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
         .build(),
     );
 
+    // ---- Jauge « espace libre sur /boot » ---------------------------------
+    // `free_in_boot` est mesuré en octets ; la barre est bornée (0..100) et le
+    // texte « X libre sur Y » donne la valeur exacte demandée.
+    let free_bar = Rc::new(RefCell::new(
+        ProgressBar::new().range(0, 100).value(0).format("").build(),
+    ));
+    free_bar.borrow_mut().set_has_parent();
+    let free_lbl = Label::new("Espace libre sur /boot : —").parent(&boot_box).build();
+    let free_lbl_ptr = free_lbl.widget_ptr() as *mut qtrs::ffi::QLabel;
+    if let Some((total, free)) = sysutil::boot_disk_free() {
+        let pct = if total > 0 {
+            ((free as f64 / total as f64) * 100.0).round() as i32
+        } else {
+            0
+        };
+        free_bar.borrow_mut().set_value(pct.clamp(0, 100));
+        set_label_text(
+            free_lbl_ptr,
+            &format!(
+                "Espace libre sur /boot : {} libre{}",
+                fmt_bytes(free),
+                if total > 0 {
+                    format!(" sur {}", fmt_bytes(total))
+                } else {
+                    String::new()
+                }
+            ),
+        );
+    } else {
+        set_label_text(free_lbl_ptr, "Espace libre sur /boot : inconnu (/boot non monté ?)");
+    }
+    let free_row_w = Widget::new().parent(&boot_box).build();
+    let mut free_row_l = HBoxLayout::with_parent(&free_row_w);
+    free_row_l.set_spacing(8);
+    free_row_l.add(free_lbl);
+    free_row_l.add(wrap_scroll(&free_bar, wp));
+    boot_l.add(free_row_w);
+
     let boot_to_lbl = Label::new("Délai du menu de démarrage : (cliquez sur « Lire »)")
         .parent(&boot_box)
         .build();
@@ -658,6 +720,7 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
         kernel_lists,
         list,
         bar,
+        free_bar,
         status,
         logw,
         central,
@@ -670,6 +733,7 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
             boot: boot_l,
             boot_row: boot_row_l,
             bar_row: bar_row_l,
+            free_row: free_row_l,
         },
         menubar,
     }
@@ -722,6 +786,28 @@ fn run_cli_install(kind: KernelKind, pw: &str) -> i32 {
 // ------------------------------------------------------------------
 // main
 // ------------------------------------------------------------------
+/// Cherche le logo (PNG 128) dans les emplacements plausibles :
+///  1. `/usr/share/icons/hicolor/128x128/apps/solus-external-kernel-manager.png` (paqueté)
+///  2. à côté du binaire courant (dev / exécution directe)
+/// Retourne `None` si aucun (icône manquante non bloquant).
+fn find_logo() -> Option<String> {
+    let mut candidates: Vec<String> = vec![
+        "/usr/share/icons/hicolor/128x128/apps/solus-external-kernel-manager.png".to_string(),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("logo-128.png").to_string_lossy().into_owned());
+        }
+    }
+    candidates.push("logo-128.png".to_string());
+    for c in candidates {
+        if std::path::Path::new(&c).exists() {
+            return Some(c);
+        }
+    }
+    None
+}
+
 fn main() {
     // Mode test en ligne de commande : vérifie la lecture des trois dépôts
     // (et, avec --download, le téléchargement + SHA256 d'un paquet) sans GUI.
@@ -826,6 +912,10 @@ fn main() {
     }
 
     let app = Application::new();
+    // Icône de fenêtre (tux + clé à molette) — chargée du PNG, si trouvé.
+    if let Some(p) = find_logo() {
+        app.set_icon(&p);
+    }
     let (tx, rx) = mpsc::channel::<WorkerMsg>();
 
     let window = Rc::new(RefCell::new(
@@ -935,4 +1025,41 @@ fn main() {
         .build();
 
     app.exec();
+}
+
+// ------------------------------------------------------------------
+// Tests
+// ------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_bytes_below_kilo() {
+        assert_eq!(fmt_bytes(0), "0 o");
+        assert_eq!(fmt_bytes(123), "123 o");
+        assert_eq!(fmt_bytes(1023), "1023 o");
+    }
+
+    #[test]
+    fn fmt_bytes_kilo() {
+        assert_eq!(fmt_bytes(1024), "1.0 Ko");
+        assert_eq!(fmt_bytes(1_536), "1.5 Ko");
+        assert_eq!(fmt_bytes(1023 * 1024), "1023.0 Ko");
+    }
+
+    #[test]
+    fn fmt_bytes_mega_giga() {
+        assert_eq!(fmt_bytes(1024 * 1024), "1.0 Mo");
+        assert_eq!(fmt_bytes(1_048_576 * 50), "50.0 Mo");
+        assert_eq!(fmt_bytes(1024_u64.pow(3)), "1.0 Go");
+        assert_eq!(fmt_bytes(1024_u64.pow(3) * 2), "2.0 Go");
+    }
+
+    #[test]
+    fn fmt_bytes_terabyte_caps() {
+        assert_eq!(fmt_bytes(1024_u64.pow(4)), "1.0 To");
+        // Au-delà, on reste en To (pas d'unité supérieure).
+        assert_eq!(fmt_bytes(1024_u64.pow(4) * 5), "5.0 To");
+    }
 }

@@ -22,7 +22,8 @@ distribution **Solus**. Trois fournisseurs sont pris en charge, un par onglet
 L'interface présente **trois onglets en haut** (un par fournisseur), chacun
 portant ses propres boutons **Actualiser / Installer / Supprimer** ; la zone
 commune en bas rassemble la liste des noyaux installés, le noyau de
-démarrage (systemd-boot) et le journal d'activité.
+démarrage (systemd-boot), une **jauge d'espace libre sur la partition `/boot`**
+(taille totale et espace restant) et le journal d'activité.
 
 ### Ce que fait l'application
 
@@ -55,7 +56,7 @@ Prérequis sur la machine cible : **Qt6 Base** (fourni par le système Solus),
 sudo eopkg install -y solus-external-kernel-manager
 
 # … ou directement depuis le dépôt GitHub
-sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-2-1-x86_64.eopkg
+sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-3-1-x86_64.eopkg
 ```
 
 Le paquet est publié dans le dépôt eopkg personnel `linuxon`
@@ -135,7 +136,9 @@ distribution. Three providers are supported, one per tab:
 
 The UI shows **three tabs on top** (one per provider), each with its own
 **Refresh / Install / Remove** buttons; the shared area below holds the
-installed-kernels list, the boot kernel (systemd-boot) and an activity log.
+installed-kernels list, the boot kernel (systemd-boot), a **free-space gauge
+for the `/boot` partition** (total size and remaining space) and an activity
+log.
 
 ### What the application does
 
@@ -168,7 +171,7 @@ Prerequisites on the target machine: **Qt6 Base** (provided by Solus),
 sudo eopkg install -y solus-external-kernel-manager
 
 # … or directly from the GitHub repository
-sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-2-1-x86_64.eopkg
+sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-3-1-x86_64.eopkg
 ```
 
 The package is published in the personal `linuxon` eopkg repository

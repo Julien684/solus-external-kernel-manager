@@ -31,7 +31,7 @@ OUT_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
 
 PACKAGE_NAME   = "solus-external-kernel-manager"
 VERSION        = "0.1.1"
-RELEASE        = 2
+RELEASE        = 3
 DIST_RELEASE   = 1
 ARCH           = "x86_64"
 DIST_NAME      = "Solus"
@@ -48,6 +48,14 @@ FILE_LIST = [
      "target/release/solus-external-kernel-manager", 0o755),
     ("usr/share/applications/solus-external-kernel-manager.desktop",
      "solus-external-kernel-manager.desktop", 0o644),
+    # Icône d'application (tux + clé à molette) — thème hicolor, utilisable par
+    # le .desktop ET chargée par l'app (find_logo) pour l'icône de fenêtre.
+    ("usr/share/icons/hicolor/128x128/apps/solus-external-kernel-manager.png",
+     "logo-128.png", 0o644),
+    ("usr/share/icons/hicolor/48x48/apps/solus-external-kernel-manager.png",
+     "logo-48.png", 0o644),
+    ("usr/share/icons/hicolor/24x24/apps/solus-external-kernel-manager.png",
+     "logo-24.png", 0o644),
     ("usr/share/doc/solus-external-kernel-manager/README.md",
      "README.md", 0o644),
     ("usr/share/licenses/solus-external-kernel-manager/LICENSE",
@@ -205,8 +213,15 @@ or Liquorix.""")}</Description>
         <PartOf>{PART_OF}</PartOf>
         <License>GPL-3.0-or-later</License>
 {deps_xml}        <History>
-            <Update release="2">
+            <Update release="3">
                 <Date>{today}</Date>
+                <Version>{VERSION}</Version>
+                <Comment>{PACKAGE_NAME} {VERSION} rel3 : jauge espace libre /boot (total + libre), logo Tux + cle a molette (icone fenetre + theme hicolor), tests unitaires statfs/fmt_bytes</Comment>
+                <Name>{PACKAGER_NAME}</Name>
+                <Email>{PACKAGER_EMAIL}</Email>
+            </Update>
+            <Update release="2">
+                <Date>2026-10-28</Date>
                 <Version>{VERSION}</Version>
                 <Comment>{PACKAGE_NAME} {VERSION} rel2 : option CLI --list</Comment>
                 <Name>{PACKAGER_NAME}</Name>
