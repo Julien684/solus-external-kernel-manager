@@ -25,6 +25,8 @@ commune en bas rassemble la liste des noyaux installés, le noyau de
 démarrage (systemd-boot), une **jauge d'espace libre sur la partition `/boot`**
 (taille totale et espace restant) et le journal d'activité.
 
+![Capture d'écran de Solus External Kernel Manager](screenshot.png)
+
 ### Ce que fait l'application
 
 1. **Lecture du dépôt** : télécharge la base du dépôt (`.db`, formats zstd /
@@ -139,6 +141,8 @@ The UI shows **three tabs on top** (one per provider), each with its own
 installed-kernels list, the boot kernel (systemd-boot), a **free-space gauge
 for the `/boot` partition** (total size and remaining space) and an activity
 log.
+
+![Solus External Kernel Manager screenshot](screenshot.png)
 
 ### What the application does
 
