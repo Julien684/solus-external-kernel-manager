@@ -590,17 +590,20 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
         ProgressBar::new().range(0, 100).value(0).format("").build(),
     ));
     free_bar.borrow_mut().set_has_parent();
-    let free_lbl = Label::new("Espace libre sur /boot : —").parent(&boot_box).build();
+    let free_lbl = Label::new("Espace utilisé sur /boot : —").parent(&boot_box).build();
     let free_lbl_ptr = free_lbl.widget_ptr() as *mut qtrs::ffi::QLabel;
 
-    // Affiche (barre + texte) un espace mesuré.
+    // Affiche (barre + texte) un espace mesuré. La barre représente l'espace
+    // **utilisé** (total − libre) : elle se remplit à mesure que la partition
+    // se remplit.
     fn apply_space(
         lbl: *mut qtrs::ffi::QLabel,
         bar: &Rc<RefCell<ProgressBar>>,
         sp: sysutil::BootSpace,
     ) {
+        let used = sp.total.saturating_sub(sp.free);
         let pct = if sp.total > 0 {
-            ((sp.free as f64 / sp.total as f64) * 100.0).round() as i32
+            ((used as f64 / sp.total as f64) * 100.0).round() as i32
         } else {
             0
         };
@@ -608,9 +611,10 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
         set_label_text(
             lbl,
             &format!(
-                "Espace libre sur /boot : {} libre sur {}",
-                fmt_bytes(sp.free),
-                fmt_bytes(sp.total)
+                "Espace utilisé sur /boot : {} / {} ({} libre)",
+                fmt_bytes(used),
+                fmt_bytes(sp.total),
+                fmt_bytes(sp.free)
             ),
         );
     }
@@ -620,10 +624,10 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
         None => {
             let msg = match sysutil::esp_size() {
                 Some(t) => format!(
-                    "Espace libre sur /boot : inconnu (partition non montée, {} au total) — cliquez sur « Mesurer »",
+                    "Espace utilisé sur /boot : inconnu (partition non montée, {} au total) — cliquez sur « Mesurer »",
                     fmt_bytes(t)
                 ),
-                None => "Espace libre sur /boot : inconnu — cliquez sur « Mesurer »".to_string(),
+                None => "Espace utilisé sur /boot : inconnu — cliquez sur « Mesurer »".to_string(),
             };
             set_label_text(free_lbl_ptr, &msg);
         }
@@ -635,9 +639,9 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
     free_row_l.add(free_lbl);
 
     // Barre directement dans le layout (plus de ScrollArea qui gonflait le
-    // cadre) avec une hauteur fixe réduite.
+    // cadre) avec une hauteur fixe : épaissie pour rester lisible.
     let free_sa = wrap_scroll(&free_bar, wp);
-    unsafe { qtrs::ffi::QWidget_setFixedHeight(free_sa.widget_ptr(), 22) };
+    unsafe { qtrs::ffi::QWidget_setFixedHeight(free_sa.widget_ptr(), 34) };
     free_row_l.add(free_sa);
 
     // Bouton « Mesurer » : demande le mot de passe root, monte l'ESP en
@@ -900,9 +904,10 @@ fn main() {
         match sysutil::boot_space_nopass() {
             Some(sp) => {
                 println!(
-                    "/boot : {} libre sur {} (monté)",
-                    fmt_bytes(sp.free),
-                    fmt_bytes(sp.total)
+                    "/boot : {} utilisé / {} ({} libre) [monté]",
+                    fmt_bytes(sp.total.saturating_sub(sp.free)),
+                    fmt_bytes(sp.total),
+                    fmt_bytes(sp.free)
                 );
             }
             None => {
@@ -917,9 +922,10 @@ fn main() {
                 }
                 match sysutil::boot_space_with_sudo(&pw) {
                     Ok(sp) => println!(
-                        "/boot : {} libre sur {} (mesuré via montage ro)",
-                        fmt_bytes(sp.free),
-                        fmt_bytes(sp.total)
+                        "/boot : {} utilisé / {} ({} libre) [mesuré via montage ro]",
+                        fmt_bytes(sp.total.saturating_sub(sp.free)),
+                        fmt_bytes(sp.total),
+                        fmt_bytes(sp.free)
                     ),
                     Err(e) => {
                         eprintln!("ERREUR mesure /boot : {}", e);
