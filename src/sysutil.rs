@@ -36,16 +36,6 @@ pub fn log(line: &str) {
     }
 }
 
-/// Espace disponible sur la partition `/boot`.
-///
-/// Retourne `(total, libre)` en octets, ou `None` si `/boot` n'est pas monté
-/// ou si `statfs` échoue. Séparé pour tests : le calcul est dans
-/// `free_in_statfs` / `total_in_statfs` (pures), l'enveloppe système est ici.
-pub fn boot_disk_free() -> Option<(u64, u64)> {
-    let st = nix_statfs()?;
-    Some((total_in_statfs(&st), free_in_statfs(&st)))
-}
-
 /// Espace libre (octets) : `f_bavail` (blocs non-root) × taille du bloc.
 #[allow(clippy::cast_sign_loss)]
 pub(crate) fn free_in_statfs(st: &Statfs) -> u64 {
@@ -65,10 +55,10 @@ pub(crate) struct Statfs {
     pub f_blocks: i64,  // blocs au total
 }
 
-/// Lecture `statvfs` de `/boot` via libc.
-fn nix_statfs() -> Option<Statfs> {
+/// `statvfs` d'un chemin quelconque (montage).
+fn statvfs_at(path: &str) -> Option<Statfs> {
     let mut sv: libc::statvfs = unsafe { std::mem::zeroed() };
-    let cpath = std::ffi::CString::new("/boot").ok()?;
+    let cpath = std::ffi::CString::new(path).ok()?;
     let r = unsafe { libc::statvfs(cpath.as_ptr(), &mut sv) };
     if r != 0 {
         return None;
@@ -77,6 +67,133 @@ fn nix_statfs() -> Option<Statfs> {
         f_bsize: sv.f_bsize as i64,
         f_bavail: sv.f_bavail as i64,
         f_blocks: sv.f_blocks as i64,
+    })
+}
+
+/// Espace d'une partition de démarrage : total et libre (octets).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BootSpace {
+    pub total: u64,
+    pub free: u64,
+}
+
+/// Point de montage de `/boot` s'il est réellement monté (distinct de `/`).
+fn boot_mountpoint() -> Option<String> {
+    let m = fs::read_to_string("/proc/mounts").ok()?;
+    m.lines()
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            let _dev = it.next()?;
+            let mp = it.next()?;
+            Some(mp.to_string())
+        })
+        .find(|mp| mp == "/boot" || mp == "/boot/efi" || mp == "/efi")
+}
+
+/// Périphérique ESP (partition vfat / type « EFI System ») via `lsblk -J -b`.
+/// Retourne `(chemin, taille_octets, point_de_montage_éventuel)`.
+pub fn esp_device() -> Option<(String, u64, Option<String>)> {
+    let out = Command::new("lsblk")
+        .args(["-J", "-b", "-o", "NAME,PATH,FSTYPE,PARTTYPE,MOUNTPOINT,SIZE"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let mut found: Vec<(String, u64, Option<String>)> = Vec::new();
+    if let Some(arr) = v.get("blockdevices").and_then(|x| x.as_array()) {
+        for d in arr {
+            walk_lsblk(d, &mut found);
+        }
+    }
+    // Priorité : monté sur /boot*, puis vfat « EFI System », puis vfat.
+    found
+        .iter()
+        .find(|(_, _, mp)| mp.as_deref() == Some("/boot"))
+        .or_else(|| found.iter().find(|(_, _, mp)| mp.as_deref() == Some("/boot/efi")))
+        .or_else(|| found.iter().find(|(_, _, mp)| mp.as_deref() == Some("/efi")))
+        .or_else(|| found.first())
+        .cloned()
+}
+
+fn walk_lsblk(d: &serde_json::Value, out: &mut Vec<(String, u64, Option<String>)>) {
+    let fstype = d.get("fstype").and_then(|x| x.as_str()).unwrap_or("");
+    let parttype = d.get("parttype").and_then(|x| x.as_str()).unwrap_or("");
+    let path = d.get("path").and_then(|x| x.as_str()).unwrap_or("");
+    let size = d.get("size").and_then(|x| x.as_u64()).unwrap_or(0);
+    let mp = d
+        .get("mountpoint")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let is_efi = parttype.starts_with("c12a7328"); // EFI System Partition
+    if !path.is_empty() && (is_efi || fstype.eq_ignore_ascii_case("vfat")) {
+        out.push((path.to_string(), size, mp.clone()));
+    }
+    if let Some(ch) = d.get("children").and_then(|x| x.as_array()) {
+        for c in ch {
+            walk_lsblk(c, out);
+        }
+    }
+}
+
+/// Espace de la partition de démarrage **sans privilège** : uniquement si elle
+/// est déjà montée (`/boot`, `/boot/efi`, `/efi`) ou si l'ESP est montée
+/// ailleurs. Retourne `None` si la partition n'est pas montée.
+pub fn boot_space_nopass() -> Option<BootSpace> {
+    if let Some(mp) = boot_mountpoint() {
+        if let Some(st) = statvfs_at(&mp) {
+            return Some(BootSpace {
+                total: total_in_statfs(&st),
+                free: free_in_statfs(&st),
+            });
+        }
+    }
+    // ESP montée à un autre endroit ?
+    let (_, size, mp) = esp_device()?;
+    if let Some(mp) = mp {
+        if let Some(st) = statvfs_at(&mp) {
+            return Some(BootSpace {
+                total: total_in_statfs(&st),
+                free: free_in_statfs(&st),
+            });
+        }
+    }
+    let _ = size;
+    None
+}
+
+/// Taille de l'ESP (octets) même non montée — via `lsblk`.
+pub fn esp_size() -> Option<u64> {
+    esp_device().map(|(_, size, _)| size).filter(|s| *s > 0)
+}
+
+/// Espace de la partition de démarrage en montant l'ESP en lecture seule
+/// (nécessite root). Monte dans `/run/sekm-boot-ro`, mesure, puis démonte.
+/// Ne modifie pas l'état du système (remet la partition non montée).
+pub fn boot_space_with_sudo(password: &str) -> Result<BootSpace, String> {
+    if let Some(s) = boot_space_nopass() {
+        return Ok(s);
+    }
+    let (dev, _size, _mp) = esp_device().ok_or_else(|| "ESP introuvable (lsblk)".to_string())?;
+    let mnt = "/run/sekm-boot-ro";
+    let (c, _o, e) = run_sudo(password, "mkdir", &["-p", mnt]);
+    if c != 0 {
+        return Err(format!("mkdir {} : {}", mnt, e.trim()));
+    }
+    let (c, _o, e) = run_sudo(password, "mount", &["-o", "ro", &dev, mnt]);
+    if c != 0 {
+        let _ = run_sudo(password, "rmdir", &[mnt]);
+        return Err(format!("mount ro {} : {}", dev, e.trim()));
+    }
+    let res = statvfs_at(mnt);
+    let _ = run_sudo(password, "umount", &[mnt]);
+    let _ = run_sudo(password, "rmdir", &[mnt]);
+    let st = res.ok_or_else(|| format!("statvfs {} impossible", mnt))?;
+    Ok(BootSpace {
+        total: total_in_statfs(&st),
+        free: free_in_statfs(&st),
     })
 }
 
@@ -587,14 +704,38 @@ mod tests {
     }
 
     #[test]
-    fn boot_disk_free_reports_the_mount_of_boot() {
-        // /boot existe toujours sur une machine testée. L'assertion forte est
-        // « cohérent » : si la fonction renvoie Some, total ≥ libre > 0.
-        if let Some((total, free)) = boot_disk_free() {
-            assert!(free > 0, "libre doit être strictement positif");
-            assert!(total >= free, "total ≥ libre");
+    fn boot_space_nopass_is_consistent() {
+        // Sur une machine testée /boot peut être monté ou non : si la fonction
+        // renvoie Some, les valeurs doivent être cohérentes.
+        if let Some(sp) = boot_space_nopass() {
+            assert!(sp.total > 0, "total > 0");
+            assert!(sp.free <= sp.total, "libre ≤ total");
         }
-        // système sans /boot monté — légal (container).
+    }
+
+    #[test]
+    fn walk_lsblk_finds_efi_partition() {
+        let j: serde_json::Value = serde_json::from_str(
+            r#"{"blockdevices":[{"name":"vda","path":"/dev/vda","fstype":null,
+            "parttype":null,"mountpoint":null,"size":64424509440,
+            "children":[
+              {"name":"vda1","path":"/dev/vda1","fstype":"vfat",
+               "parttype":"c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+               "mountpoint":null,"size":2147483648},
+              {"name":"vda2","path":"/dev/vda2","fstype":"btrfs",
+               "parttype":"0fc63daf-8483-4772-8e79-3d69d8477de4",
+               "mountpoint":"/","size":56074223616}
+            ]}]}"#,
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        for d in j.get("blockdevices").unwrap().as_array().unwrap() {
+            walk_lsblk(d, &mut out);
+        }
+        assert_eq!(out.len(), 1, "seule l'ESP vfat doit être retenue");
+        assert_eq!(out[0].0, "/dev/vda1");
+        assert_eq!(out[0].1, 2_147_483_648);
+        assert_eq!(out[0].2, None);
     }
 
     #[test]

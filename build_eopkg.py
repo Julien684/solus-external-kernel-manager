@@ -31,7 +31,7 @@ OUT_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
 
 PACKAGE_NAME   = "solus-external-kernel-manager"
 VERSION        = "0.1.1"
-RELEASE        = 4
+RELEASE        = 5
 DIST_RELEASE   = 1
 ARCH           = "x86_64"
 DIST_NAME      = "Solus"
@@ -218,6 +218,13 @@ or Liquorix.""")}</Description>
         <PartOf>{PART_OF}</PartOf>
         <License>GPL-3.0-or-later</License>
 {deps_xml}        <History>
+            <Update release="5">
+                <Date>{today}</Date>
+                <Version>{VERSION}</Version>
+                <Comment>{PACKAGE_NAME} {VERSION} rel5 : jauge /boot corrigee (ESP reelle detectee via lsblk, mesure par montage ro temporaire + bouton Mesurer, option CLI --boot-space), cadre de jauge compact</Comment>
+                <Name>{PACKAGER_NAME}</Name>
+                <Email>{PACKAGER_EMAIL}</Email>
+            </Update>
             <Update release="4">
                 <Date>{today}</Date>
                 <Version>{VERSION}</Version>

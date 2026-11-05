@@ -582,41 +582,98 @@ fn build_ui(window: &Rc<RefCell<MainWindow>>, tx: mpsc::Sender<WorkerMsg>) -> Ha
     );
 
     // ---- Jauge « espace libre sur /boot » ---------------------------------
-    // `free_in_boot` est mesuré en octets ; la barre est bornée (0..100) et le
-    // texte « X libre sur Y » donne la valeur exacte demandée.
+    // La partition de démarrage (ESP) n'est pas montée par défaut sur Solus :
+    // `statvfs("/boot")` retomberait alors sur le FS racine. On mesure donc la
+    // vraie ESP : sans privilège si elle est déjà montée, sinon via le bouton
+    // « Mesurer » (montage lecture seule temporaire, puis démontage).
     let free_bar = Rc::new(RefCell::new(
         ProgressBar::new().range(0, 100).value(0).format("").build(),
     ));
     free_bar.borrow_mut().set_has_parent();
     let free_lbl = Label::new("Espace libre sur /boot : —").parent(&boot_box).build();
     let free_lbl_ptr = free_lbl.widget_ptr() as *mut qtrs::ffi::QLabel;
-    if let Some((total, free)) = sysutil::boot_disk_free() {
-        let pct = if total > 0 {
-            ((free as f64 / total as f64) * 100.0).round() as i32
+
+    // Affiche (barre + texte) un espace mesuré.
+    fn apply_space(
+        lbl: *mut qtrs::ffi::QLabel,
+        bar: &Rc<RefCell<ProgressBar>>,
+        sp: sysutil::BootSpace,
+    ) {
+        let pct = if sp.total > 0 {
+            ((sp.free as f64 / sp.total as f64) * 100.0).round() as i32
         } else {
             0
         };
-        free_bar.borrow_mut().set_value(pct.clamp(0, 100));
+        bar.borrow_mut().set_value(pct.clamp(0, 100));
         set_label_text(
-            free_lbl_ptr,
+            lbl,
             &format!(
-                "Espace libre sur /boot : {} libre{}",
-                fmt_bytes(free),
-                if total > 0 {
-                    format!(" sur {}", fmt_bytes(total))
-                } else {
-                    String::new()
-                }
+                "Espace libre sur /boot : {} libre sur {}",
+                fmt_bytes(sp.free),
+                fmt_bytes(sp.total)
             ),
         );
-    } else {
-        set_label_text(free_lbl_ptr, "Espace libre sur /boot : inconnu (/boot non monté ?)");
     }
+
+    match sysutil::boot_space_nopass() {
+        Some(sp) => apply_space(free_lbl_ptr, &free_bar, sp),
+        None => {
+            let msg = match sysutil::esp_size() {
+                Some(t) => format!(
+                    "Espace libre sur /boot : inconnu (partition non montée, {} au total) — cliquez sur « Mesurer »",
+                    fmt_bytes(t)
+                ),
+                None => "Espace libre sur /boot : inconnu — cliquez sur « Mesurer »".to_string(),
+            };
+            set_label_text(free_lbl_ptr, &msg);
+        }
+    }
+
     let free_row_w = Widget::new().parent(&boot_box).build();
     let mut free_row_l = HBoxLayout::with_parent(&free_row_w);
     free_row_l.set_spacing(8);
     free_row_l.add(free_lbl);
-    free_row_l.add(wrap_scroll(&free_bar, wp));
+
+    // Barre directement dans le layout (plus de ScrollArea qui gonflait le
+    // cadre) avec une hauteur fixe réduite.
+    let free_sa = wrap_scroll(&free_bar, wp);
+    unsafe { qtrs::ffi::QWidget_setFixedHeight(free_sa.widget_ptr(), 22) };
+    free_row_l.add(free_sa);
+
+    // Bouton « Mesurer » : demande le mot de passe root, monte l'ESP en
+    // lecture seule le temps de la mesure, puis la démonte.
+    let measure_btn = PushButton::new("Mesurer")
+        .on_clicked({
+            let bar = free_bar.clone();
+            let logw = logw.clone();
+            let status = status.clone();
+            move || {
+                if let Some(pw) = sysutil::ask_root_password() {
+                    set_status(&status, "Mesure de l'espace /boot…");
+                    match sysutil::boot_space_with_sudo(&pw) {
+                        Ok(sp) => {
+                            apply_space(free_lbl_ptr, &bar, sp);
+                            append_log(
+                                &logw,
+                                &format!(
+                                    "Espace /boot : {} libre sur {}",
+                                    fmt_bytes(sp.free),
+                                    fmt_bytes(sp.total)
+                                ),
+                            );
+                            set_status(&status, "Espace /boot mesuré.");
+                        }
+                        Err(e) => {
+                            append_log(&logw, &format!("ERREUR mesure /boot : {}", e));
+                            set_status(&status, "Échec de la mesure de /boot.");
+                        }
+                    }
+                }
+            }
+        })
+        .parent(&free_row_w)
+        .build();
+    free_row_l.add(measure_btn);
     boot_l.add(free_row_w);
 
     let boot_to_lbl = Label::new("Délai du menu de démarrage : (cliquez sur « Lire »)")
@@ -834,6 +891,44 @@ fn main() {
             std::process::exit(2);
         }
         std::process::exit(run_cli_install(kind, &pw));
+    }
+
+    // Mode espace /boot (sans GUI) : `sekm --boot-space` — affiche la taille
+    // totale et l'espace libre de la partition de démarrage (ESP). Utilise
+    // `SEKM_SUDO_PASS` si la partition n'est pas montée (montage ro temporaire).
+    if args.iter().any(|a| a == "--boot-space") {
+        match sysutil::boot_space_nopass() {
+            Some(sp) => {
+                println!(
+                    "/boot : {} libre sur {} (monté)",
+                    fmt_bytes(sp.free),
+                    fmt_bytes(sp.total)
+                );
+            }
+            None => {
+                let pw = std::env::var("SEKM_SUDO_PASS").unwrap_or_default();
+                match sysutil::esp_size() {
+                    Some(t) => println!("/boot : {} au total (non monté)", fmt_bytes(t)),
+                    None => println!("/boot : ESP introuvable"),
+                }
+                if pw.is_empty() {
+                    println!("(SEKM_SUDO_PASS non définie : mesure précise impossible)");
+                    std::process::exit(0);
+                }
+                match sysutil::boot_space_with_sudo(&pw) {
+                    Ok(sp) => println!(
+                        "/boot : {} libre sur {} (mesuré via montage ro)",
+                        fmt_bytes(sp.free),
+                        fmt_bytes(sp.total)
+                    ),
+                    Err(e) => {
+                        eprintln!("ERREUR mesure /boot : {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        std::process::exit(0);
     }
 
     // Mode liste CLI (sans GUI) : `sekm --list` — liste les noyaux externes

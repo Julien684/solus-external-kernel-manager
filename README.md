@@ -22,8 +22,10 @@ distribution **Solus**. Trois fournisseurs sont pris en charge, un par onglet
 L'interface présente **trois onglets en haut** (un par fournisseur), chacun
 portant ses propres boutons **Actualiser / Installer / Supprimer** ; la zone
 commune en bas rassemble la liste des noyaux installés, le noyau de
-démarrage (systemd-boot), une **jauge d'espace libre sur la partition `/boot`**
-(taille totale et espace restant) et le journal d'activité.
+démarrage (systemd-boot), une **jauge d'espace libre sur la partition de
+démarrage (ESP)** — taille totale et espace restant, mesurés même quand la
+partition n'est pas montée (bouton « Mesurer », montage lecture seule
+temporaire) — et le journal d'activité.
 
 ![Capture d'écran de Solus External Kernel Manager](screenshot.png)
 
@@ -58,7 +60,7 @@ Prérequis sur la machine cible : **Qt6 Base** (fourni par le système Solus),
 sudo eopkg install -y solus-external-kernel-manager
 
 # … ou directement depuis le dépôt GitHub
-sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-4-1-x86_64.eopkg
+sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-5-1-x86_64.eopkg
 ```
 
 Le paquet est publié dans le dépôt eopkg personnel `linuxon`
@@ -95,6 +97,9 @@ SEKM_SUDO_PASS=*** solus-external-kernel-manager --install liquorix
 
 # Lister les noyaux externes installés
 solus-external-kernel-manager --list
+
+# Espace libre de la partition de démarrage (ESP), même non montée
+SEKM_SUDO_PASS=*** solus-external-kernel-manager --boot-space
 ```
 
 ### Notes techniques / sécurité
@@ -139,8 +144,9 @@ distribution. Three providers are supported, one per tab:
 The UI shows **three tabs on top** (one per provider), each with its own
 **Refresh / Install / Remove** buttons; the shared area below holds the
 installed-kernels list, the boot kernel (systemd-boot), a **free-space gauge
-for the `/boot` partition** (total size and remaining space) and an activity
-log.
+for the boot partition (ESP)** — total size and remaining space, measured even
+when the partition is not mounted (« Mesurer » button, temporary read-only
+mount) — and an activity log.
 
 ![Solus External Kernel Manager screenshot](screenshot.png)
 
@@ -175,7 +181,7 @@ Prerequisites on the target machine: **Qt6 Base** (provided by Solus),
 sudo eopkg install -y solus-external-kernel-manager
 
 # … or directly from the GitHub repository
-sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-4-1-x86_64.eopkg
+sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-5-1-x86_64.eopkg
 ```
 
 The package is published in the personal `linuxon` eopkg repository
@@ -212,6 +218,9 @@ SEKM_SUDO_PASS=*** solus-external-kernel-manager --install liquorix
 
 # List installed external kernels
 solus-external-kernel-manager --list
+
+# Free space of the boot partition (ESP), even when unmounted
+SEKM_SUDO_PASS=*** solus-external-kernel-manager --boot-space
 ```
 
 ### Technical / security notes
