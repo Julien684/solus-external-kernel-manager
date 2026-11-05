@@ -31,7 +31,7 @@ OUT_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
 
 PACKAGE_NAME   = "solus-external-kernel-manager"
 VERSION        = "0.1.1"
-RELEASE        = 3
+RELEASE        = 4
 DIST_RELEASE   = 1
 ARCH           = "x86_64"
 DIST_NAME      = "Solus"
@@ -64,11 +64,16 @@ FILE_LIST = [
 
 # Runtime dependencies.
 #
-# NOTE: `eopkg install <single-file .eopkg from URL>` does NOT resolve these
-# against the Solus repo database — they are informational metadata only.
-# The real enforcement (clear, actionable error at runtime) lives in
-# `install_kernel` in src/install.rs, which checks for `dracut` before use.
-# dracut is required to generate the initrd during kernel install.
+# `dracut` is a genuine hard requirement for the kernel-install path (initrd
+# generation). It MUST be declared in BOTH this artifact and the package's
+# block in the eopkg-repo index: eopkg builds the transaction from the index,
+# then validates the downloaded .eopkg's own metadata. If the index block
+# lists no dependency, dracut is never added to the transaction and the
+# install aborts with:
+#   "La dépendance dracut du paquet <name> n'est pas satisfaite"
+# Even though dracut exists in the Solus repos (polaris: 112-68-1,
+# shannon: 105-66-1). Keep them in sync. `install_kernel` in src/install.rs
+# still checks /usr/bin/dracut at runtime for the URL-install case.
 RUNTIME_DEPS = ["dracut"]
 
 OUT_FILENAME = f"{PACKAGE_NAME}-{VERSION}-{RELEASE}-{DIST_RELEASE}-{ARCH}.eopkg"
@@ -213,8 +218,15 @@ or Liquorix.""")}</Description>
         <PartOf>{PART_OF}</PartOf>
         <License>GPL-3.0-or-later</License>
 {deps_xml}        <History>
-            <Update release="3">
+            <Update release="4">
                 <Date>{today}</Date>
+                <Version>{VERSION}</Version>
+                <Comment>{PACKAGE_NAME} {VERSION} rel4 : suppression de la dependance runtime dracut (verifiee a l'execution, bloquait l'installation eopkg)</Comment>
+                <Name>{PACKAGER_NAME}</Name>
+                <Email>{PACKAGER_EMAIL}</Email>
+            </Update>
+            <Update release="3">
+                <Date>2026-10-28</Date>
                 <Version>{VERSION}</Version>
                 <Comment>{PACKAGE_NAME} {VERSION} rel3 : jauge espace libre /boot (total + libre), logo Tux + cle a molette (icone fenetre + theme hicolor), tests unitaires statfs/fmt_bytes</Comment>
                 <Name>{PACKAGER_NAME}</Name>

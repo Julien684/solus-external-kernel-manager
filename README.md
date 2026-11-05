@@ -58,7 +58,7 @@ Prérequis sur la machine cible : **Qt6 Base** (fourni par le système Solus),
 sudo eopkg install -y solus-external-kernel-manager
 
 # … ou directement depuis le dépôt GitHub
-sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-3-1-x86_64.eopkg
+sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-4-1-x86_64.eopkg
 ```
 
 Le paquet est publié dans le dépôt eopkg personnel `linuxon`
@@ -175,7 +175,7 @@ Prerequisites on the target machine: **Qt6 Base** (provided by Solus),
 sudo eopkg install -y solus-external-kernel-manager
 
 # … or directly from the GitHub repository
-sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-3-1-x86_64.eopkg
+sudo eopkg install -y https://raw.githubusercontent.com/Julien684/solus-external-kernel-manager/main/solus-external-kernel-manager-0.1.1-4-1-x86_64.eopkg
 ```
 
 The package is published in the personal `linuxon` eopkg repository
