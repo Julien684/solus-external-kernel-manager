@@ -7,3 +7,6 @@
 /shot.sh
 __pycache__/
 *.pyc
+
+# Artefact publie dans les releases, plus dans l arbre
+*.eopkg
