@@ -31,7 +31,7 @@ OUT_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
 
 PACKAGE_NAME   = "solus-external-kernel-manager"
 VERSION        = "0.1.1"
-RELEASE        = 6
+RELEASE        = 7
 DIST_RELEASE   = 1
 ARCH           = "x86_64"
 DIST_NAME      = "Solus"
@@ -60,6 +60,8 @@ FILE_LIST = [
      "README.md", 0o644),
     ("usr/share/licenses/solus-external-kernel-manager/LICENSE",
      "LICENSE", 0o644),
+    ("usr/share/metainfo/fr.julien68.SolusExternalKernelManager.metainfo.xml", "fr.julien68.SolusExternalKernelManager.metainfo.xml", 0o644),
+    ("usr/share/doc/solus-external-kernel-manager/screenshot.png", "screenshot.png", 0o644),
 ]
 
 # Runtime dependencies.
