@@ -34,6 +34,16 @@ pub enum KernelKind {
     Zen,
     /// Noyau Liquorix (`linux-lqx`).
     Liquorix,
+    /// Noyau compilé localement depuis une archive de kernel.org.
+    ///
+    /// Cette variante n'est **pas** servie par un dépôt pacman : elle n'existe
+    /// que pour donner une identité (libellé, répertoire EFI, titre de boot)
+    /// aux noyaux produits par l'onglet « Avancé » et lue par le registre
+    /// d'installation, [`crate::install::list_installed`] et
+    /// [`crate::install::remove_kernel`]. Les fonctions de dépôt
+    /// (`repo_base`, `repo_subdirs`, `db_name`) ne sont jamais appelées avec
+    /// cette variante — `fetch_latest_kernels` la refuse explicitement.
+    KernelOrg,
 }
 
 impl KernelKind {
@@ -43,6 +53,7 @@ impl KernelKind {
             KernelKind::Cachyos => "CachyOS",
             KernelKind::Zen => "Zen",
             KernelKind::Liquorix => "Liquorix",
+            KernelKind::KernelOrg => "kernel.org",
         }
     }
     /// Nom du paquet principal dans le dépôt.
@@ -51,6 +62,8 @@ impl KernelKind {
             KernelKind::Cachyos => "linux-cachyos",
             KernelKind::Zen => "linux-zen",
             KernelKind::Liquorix => "linux-lqx",
+            // Pas de paquet : le noyau est compilé depuis les sources.
+            KernelKind::KernelOrg => "linux",
         }
     }
     /// Sous-dépôt EFI « propriétaire » (pour isoler de `clr-boot-manager`).
@@ -59,6 +72,7 @@ impl KernelKind {
             KernelKind::Cachyos => "com.cachyos",
             KernelKind::Zen => "com.zen-kernel",
             KernelKind::Liquorix => "com.liquorix",
+            KernelKind::KernelOrg => "org.kernel",
         }
     }
     /// Titre de l'entrée de boot (systemd-boot).
@@ -67,6 +81,7 @@ impl KernelKind {
             KernelKind::Cachyos => "CachyOS",
             KernelKind::Zen => "Zen",
             KernelKind::Liquorix => "Liquorix",
+            KernelKind::KernelOrg => "Linux (kernel.org)",
         }
     }
     /// Reconstruit un `KernelKind` depuis son libellé (registre).
@@ -75,6 +90,7 @@ impl KernelKind {
             "CachyOS" => Some(KernelKind::Cachyos),
             "Zen" => Some(KernelKind::Zen),
             "Liquorix" => Some(KernelKind::Liquorix),
+            "kernel.org" => Some(KernelKind::KernelOrg),
             _ => None,
         }
     }
@@ -234,11 +250,16 @@ impl KernelRelease {
 }
 
 /// Base du dépôt (URL sans le sous-dépôt ni le nom de fichier).
+///
+/// `KernelKind::KernelOrg` n'a pas de dépôt : la variante est refusée en amont
+/// par `fetch_latest_kernels`, et la chaîne vide ci-dessous ne peut donc pas
+/// produire d'URL. Aucun autre appelant n'existe.
 fn repo_base(kind: KernelKind) -> &'static str {
     match kind {
         KernelKind::Cachyos => "https://mirror.cachyos.org/repo",
         KernelKind::Zen => "https://mirror.leaseweb.com/archlinux",
         KernelKind::Liquorix => "https://liquorix.net/archlinux",
+        KernelKind::KernelOrg => "",
     }
 }
 
@@ -248,6 +269,7 @@ fn repo_subdirs(kind: KernelKind) -> Vec<&'static str> {
         KernelKind::Cachyos => vec!["x86_64_v4/cachyos-v4", "x86_64/cachyos"],
         KernelKind::Zen => vec!["extra/os/x86_64"],
         KernelKind::Liquorix => vec!["liquorix/x86_64"],
+        KernelKind::KernelOrg => Vec::new(),
     }
 }
 
@@ -259,6 +281,7 @@ fn db_name(kind: KernelKind) -> &'static str {
         KernelKind::Cachyos => "cachyos-v4.db",
         KernelKind::Zen => "extra.db",
         KernelKind::Liquorix => "liquorix.db",
+        KernelKind::KernelOrg => "",
     }
 }
 
@@ -272,6 +295,12 @@ fn agent() -> Agent {
 /// Récupère les trois dernières versions du noyau `kind` présentes dans le
 /// dépôt, triées du plus récent au plus ancien.
 pub fn fetch_latest_kernels(kind: KernelKind) -> Result<Vec<KernelRelease>, String> {
+    if kind == KernelKind::KernelOrg {
+        return Err(
+            "Les noyaux kernel.org ne viennent pas d'un dépôt pacman : utilisez l'onglet « Avancé » (compilation depuis les sources)."
+                .to_string(),
+        );
+    }
     let agent = agent();
 
     // Les dépôts pacman peuvent changer de génération (CachyOS a déjà passé
@@ -481,6 +510,10 @@ pub fn parse_desc(kind: KernelKind, dir_name: &str, desc: &str) -> Option<Kernel
         KernelKind::Cachyos => format!("{}-cachyos", version),
         KernelKind::Zen => kernel_version_base,
         KernelKind::Liquorix => format!("{}-lqx", kernel_version_base),
+        // kernel.org ne passe jamais par un enregistrement de dépôt
+        // (`fetch_latest_kernels` refuse la variante en amont) : aucun paquet
+        // à décrire.
+        KernelKind::KernelOrg => return None,
     };
 
     Some(KernelRelease {

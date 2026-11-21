@@ -138,6 +138,11 @@ fn walk_lsblk(d: &serde_json::Value, out: &mut Vec<(String, u64, Option<String>)
     }
 }
 
+/// Espace libre (octets) d'un chemin quelconque, sans privilège.
+pub fn free_bytes_at(path: &str) -> Option<u64> {
+    statvfs_at(path).map(|st| free_in_statfs(&st))
+}
+
 /// Espace de la partition de démarrage **sans privilège** : uniquement si elle
 /// est déjà montée (`/boot`, `/boot/efi`, `/efi`) ou si l'ESP est montée
 /// ailleurs. Retourne `None` si la partition n'est pas montée.
@@ -218,6 +223,9 @@ pub fn kernel_suffix(kernel_version: &str) -> String {
     if let Some(i) = v.rfind("-lqx") {
         return v[i..].to_string();
     }
+    if let Some(i) = v.rfind("-kernelorg") {
+        return v[i..].to_string();
+    }
     String::new()
 }
 
@@ -231,6 +239,8 @@ pub fn kernel_vendor_dir(kernel_version: &str) -> String {
         "com.zen-kernel".into()
     } else if s.contains("lqx") {
         "com.liquorix".into()
+    } else if s.contains("kernelorg") {
+        "org.kernel".into()
     } else {
         "com.external".into()
     }
@@ -274,6 +284,10 @@ pub fn guess_kind(name: &str) -> Option<crate::repo::KernelKind> {
         Some(KernelKind::Zen)
     } else if v.contains("lqx") {
         Some(KernelKind::Liquorix)
+    } else if v.contains("kernelorg") {
+        // Noyau compilé localement depuis kernel.org : le suffixe est imposé
+        // par l'application (`LOCALVERSION="-kernelorg"`), cf. `build.rs`.
+        Some(KernelKind::KernelOrg)
     } else {
         None
     }
@@ -612,6 +626,65 @@ pub fn ask_root_password() -> Option<String> {
     } else {
         Some(text)
     }
+}
+
+/// Ouvre une fenêtre modale affichant un texte long (journal), en lecture
+/// seule et sélectionnable — pour lire une erreur sans chercher dans la zone
+/// du bas de la fenêtre principale.
+///
+/// Construite en FFI direct (comme [`ask_root_password`]) : un layout local
+/// droppé supprimerait le C++ et laisserait une fenêtre vide.
+pub fn show_text_window(title: &str, body: &str) {
+    use cxx::let_cxx_string;
+    use qtrs::dialogbuttonbox::{DialogButtonBox, OK_BUTTON};
+    use qtrs::ffi;
+    use qtrs::layout::VBoxLayout;
+    use qtrs::{Label, PlainTextEdit};
+
+    let dlg = unsafe { ffi::QDialog_new(std::ptr::null_mut()) };
+    let_cxx_string!(c_title = title);
+    unsafe {
+        ffi::QDialog_setModal(dlg, true);
+        ffi::QDialog_setWindowTitle(dlg, &c_title);
+        ffi::QDialog_setMinimumSize(dlg, 900, 560);
+        ffi::QDialog_resize(dlg, 980, 620);
+    }
+
+    let mut layout = VBoxLayout::new();
+    layout.set_spacing(8);
+    layout.set_contents_margins(12, 12, 12, 12);
+    unsafe { ffi::QDialog_setLayout(dlg, layout.layout_ptr() as *mut ffi::QLayout) };
+
+    layout.add(Label::new(title).build());
+
+    let view = PlainTextEdit::new().build();
+    view.set_read_only(true);
+    view.set_plain_text(body);
+    layout.add(view);
+
+    let buttons = DialogButtonBox::new().standard_buttons(OK_BUTTON).build();
+    let ok_ptr = buttons.button_ptr(OK_BUTTON);
+    layout.add(buttons);
+    {
+        let_cxx_string!(sig_clicked = "2clicked()");
+        let_cxx_string!(slot_accept = "1accept()");
+        unsafe {
+            if !ok_ptr.is_null() {
+                ffi::QObject_connect(
+                    ok_ptr as *mut ffi::QObject,
+                    &sig_clicked,
+                    dlg as *mut ffi::QObject,
+                    &slot_accept,
+                    0,
+                );
+            }
+        }
+    }
+
+    unsafe { ffi::QDialog_exec(dlg) };
+    // Le layout Rust ne doit pas supprimer le C++ déjà détruit par le dialogue.
+    std::mem::forget(layout);
+    unsafe { ffi::QDialog_delete(dlg) };
 }
 
 /// Lance une commande avec sudo, en alimentant `stdin` avec le mot de passe.

@@ -30,8 +30,8 @@ SRC_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".")
 OUT_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
 
 PACKAGE_NAME   = "solus-external-kernel-manager"
-VERSION        = "0.1.1"
-RELEASE        = 7
+VERSION        = "0.2.0"
+RELEASE        = 23
 DIST_RELEASE   = 1
 ARCH           = "x86_64"
 DIST_NAME      = "Solus"
@@ -83,7 +83,8 @@ OUT_FILENAME = f"{PACKAGE_NAME}-{VERSION}-{RELEASE}-{DIST_RELEASE}-{ARCH}.eopkg"
 # French metadata — accents preserved in UTF-8 (must NOT pass through the
 # ASCII-replacing helper `a()`).
 _FR_SUMMARY = ("Gestionnaire graphique (Qt6) des noyaux externes "
-               "(CachyOS, Zen, Liquorix) pour Solus - experimental")
+               "(CachyOS, Zen, Liquorix) + compilation depuis kernel.org pour "
+               "Solus - experimental")
 _FR_DESCRIPTION = """solus-external-kernel-manager est un petit gestionnaire graphique
 (Qt6) qui installe des noyaux externes sur une distribution Solus. Trois
 fournisseurs sont pris en charge, chacun dans son onglet : CachyOS (depot
@@ -220,6 +221,13 @@ or Liquorix.""")}</Description>
         <PartOf>{PART_OF}</PartOf>
         <License>GPL-3.0-or-later</License>
 {deps_xml}        <History>
+            <Update release="8">
+                <Date>{today}</Date>
+                <Version>{VERSION}</Version>
+                <Comment>{PACKAGE_NAME} {VERSION} rel23 : note de base a hauteur minimale garante (3 lignes) et onglet Avance agrandi a 720 px : le QLabel etait comprime verticalement, texte coupe ; verifie a 96 et 120 dpi ; rel22 : notes des bases raccourcies a 55 caracteres par ligne (elles etaient coupees : qtrs ne replie pas les QLabel) et rangee des etapes remise au-dessus des outils ; rel21 : « (recommande) » sur la base du noyau courant (retire de defconfig), note sans mention du PC de test, rangee dediee aux boutons outils et nettoyage au-dessus des etapes ; rel20 : base « config du noyau courant » par defaut quand disponible et proposee en tete (6544 modules, seule base sonore sur le PC de test), note d une seule base a la fois sous le selecteur, bouton de desinstallation des outils de compilation, libelles raccourcis pour tenir sur une ligne ; rel19 : codecs audio par puce (SND_HDA_CODEC_ALC269/ALC662/... : depuis 6.5 le codec Realtek ne suffit plus, cas reel d un ALC3234 sans son) ; rel18 : completude fiabilisee (2e passe apres olddefconfig, gelf.h/elfutils, noms de symboles corriges SENSORS_CORETEMP/USB_VIDEO_CLASS, booléens vs tristates), garde-fou limite aux essentiels fatals (zram + codecs audio) ; rel17 : passe de completude (zram, codecs audio, pare-feu, wireguard, exfat, fuse, bt, webcam, iwlwifi... reactives en modules au-dessus de toute base : 13 -> 57 modules verifies sur la VM), refus si un essentiel reste desactive, base choisie ecrite dans manager.log ; rel16 : base defconfig COMPLET par defaut (localmodconfig retirait btrfs, zram et le son : noyau sans racine, 60 s de timeouts, pas d audio) ; rel15 : garde-fou du systeme de fichiers racine (localmodconfig supprimait btrfs, noyau non demarrable) et bouton de suppression du noyau compile ; rel14 : monte /boot avant toute ecriture dans le chemin d installation commun (echec « tee: /boot/loader/entries » du noyau compile), refus « deja installe » base sur le registre pour permettre la reprise apres echec partiel ; rel13 : installation des outils sans meta-paquet (noms explicites, filtrage depot/deja installe), hauteur des onglets ajustee a la page (plus de vide sous les boutons) ; rel12 : corrige l echec de compilation par gelf.h manquant (elfutils-devel ajoute aux outils et au pre-vol), onglet systemd-boot dedie, table des versions limitee a 3 lignes, RC de nouveau proposes avec confirmation explicite (non signes), tests de non-regression (tests/nonregression.sh) ; rel11 : affichage du journal dans une fenetre (menu Fichier + bouton), version dans A propos, RC de kernel.org ecartes (404 de l URL .tar.gz), message d erreur de make sans les lignes de conclusion ; rel10 : bouton d installation des outils de compilation, barre animee pendant les operations, sortie de make recopiee dans le journal et le message d erreur ; rel9 : corrections tickets #1 (espace disque du repertoire de travail neuf) et #2 (parallelisme plafonne au nombre de coeurs) ; rel8 : onglet Avance - compilation d'un noyau kernel.org (signature PGP obligatoire, defconfig/localmodconfig, options -march=native et preemption, menuconfig, journal en direct, annulation), mode CLI --kernelorg-list/stage/build, fin d'installation commune avec les noyaux pacman</Comment>
+                <Name>{PACKAGER_NAME}</Name>
+                <Email>{PACKAGER_EMAIL}</Email>
+            </Update>
             <Update release="6">
                 <Date>{today}</Date>
                 <Version>{VERSION}</Version>

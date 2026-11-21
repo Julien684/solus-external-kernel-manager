@@ -116,31 +116,13 @@ pub fn install_kernel(
         ));
     }
 
-    // 3. Tables de modules (modules.dep, modules.alias, …).
-    // INDISPENSABLE avant dracut : les paquets n'en fournissent pas — ils sont
-    // générés par le `depmod` du post-install pacman, qu'on n'exécute pas.
-    step(3, &format!("depmod {} …", k));
-    let (code, _out, err) = run_sudo(password, "depmod", &[k]);
-    if code != 0 {
-        return Err(format!(
-            "depmod a échoué pour {} (code {}): {}",
-            k,
-            code,
-            tail(&err)
-        ));
-    }
-    let dep_path = kp.modules.join("modules.dep");
-    if !dep_path.exists() {
-        return Err(format!(
-            "depmod n'a pas généré {} : l'initrd ne peut pas être construit",
-            dep_path.display()
-        ));
-    }
-
-    // 4. vmlinuz → /boot/EFI/<vendor>/
+    // 3. vmlinuz extrait du paquet vers un répertoire temporaire.
     // Le vmlinuz est dans le paquet ; son membre est découvert (`layout.vmlinuz`).
-    step(4, "Extraction + copie du vmlinuz dans /boot …");
+    // Numérotée 2 comme l'extraction des modules : la suite commune reprend à
+    // 3 (`depmod`), pour ne pas sauter une étape dans la progression.
+    step(2, "Extraction du vmlinuz du paquet …");
     let tmp = crate::sysutil::state_dir().join(format!("vmlinuz-{}", k));
+    let _ = fs::remove_dir_all(&tmp);
     let _ = fs::create_dir_all(&tmp);
     let (code, _out, err) = run_sudo(
         password,
@@ -172,6 +154,84 @@ pub fn install_kernel(
             src_vmlinuz.display()
         ));
     }
+
+    // 3 à 7. Suite commune avec les noyaux compilés localement (voir
+    // `finish_install`) : depmod, vmlinuz → /boot, dracut, entrée, sync.
+    let res = finish_install(password, k, &src_vmlinuz, kind, kernel_version, step);
+    let _ = fs::remove_dir_all(&tmp);
+    res
+}
+
+/// Fin d'installation **commune** aux noyaux venus d'un paquet pacman et à
+/// ceux compilés depuis kernel.org : à ce stade les modules sont déjà en place
+/// dans `/lib/modules/<kname>` et le `vmlinuz` est un fichier du disque.
+///
+/// Étapes émises (numérotation partagée avec `install_kernel`) :
+///   3. `depmod <kname>` (bloquant : dracut refuse sans `modules.dep`)
+///   4. copie du vmlinuz → `/boot/EFI/<vendor>/kernel-<kname>`
+///   5. `dracut --kver <kname>` → `/boot/EFI/<vendor>/initrd-<kname>`
+///   6. entrée systemd-boot `/boot/loader/entries/ext-<kname>.conf`
+///   7. `sync`
+///
+/// `kname` est le nom du dossier modules (= `uname -r` du noyau) et fait foi ;
+/// `kernel_version` n'est que le libellé d'affichage (« 6.12.118-kernelorg »
+/// côté compilation, version du dépôt côté pacman).
+pub fn finish_install(
+    password: &str,
+    kname: &str,
+    vmlinuz_src: &Path,
+    kind: KernelKind,
+    kernel_version: &str,
+    step: &dyn Fn(u32, &str),
+) -> Result<String, String> {
+    let k = kname;
+    let kp = KernelPaths::for_kernel(k, kind);
+
+    // 2b. /boot monté — INDISPENSABLE et c'était le trou : sans ce montage,
+    // `mkdir -p /boot/EFI/<vendor>` crée l'arborescence sur le FS RACINE
+    // (`/boot` est un répertoire vide quand l'ESP n'est pas montée), le vmlinuz
+    // et l'initrd y sont copiés, puis `tee /boot/loader/entries/…` échoue sur
+    // « Aucun fichier ou dossier de ce nom ». Le chemin pacman le faisait,
+    // `finish_install` non : tout noyau compilé échouait à la dernière étape.
+    step(2, "Vérification du montage de /boot …");
+    ensure_boot_mounted(password)?;
+    if !std::path::Path::new("/boot/loader").is_dir() {
+        return Err(
+            "/boot est monté mais /boot/loader est absent : l'ESP ne contient pas \
+             systemd-boot. Installation abandonnée avant toute copie."
+                .to_string(),
+        );
+    }
+
+    // 3. Tables de modules (modules.dep, modules.alias, …).
+    // INDISPENSABLE avant dracut : les paquets n'en fournissent pas — ils sont
+    // générés par le `depmod` du post-install pacman, qu'on n'exécute pas.
+    step(3, &format!("depmod {} …", k));
+    let (code, _out, err) = run_sudo(password, "depmod", &[k]);
+    if code != 0 {
+        return Err(format!(
+            "depmod a échoué pour {} (code {}): {}",
+            k,
+            code,
+            tail(&err)
+        ));
+    }
+    let dep_path = kp.modules.join("modules.dep");
+    if !dep_path.exists() {
+        return Err(format!(
+            "depmod n'a pas généré {} : l'initrd ne peut pas être construit",
+            dep_path.display()
+        ));
+    }
+
+    // 4. vmlinuz → /boot/EFI/<vendor>/
+    step(4, "Copie du vmlinuz dans /boot …");
+    if !vmlinuz_src.exists() {
+        return Err(format!(
+            "vmlinuz introuvable : {}",
+            vmlinuz_src.display()
+        ));
+    }
     let boot_dir = kp.vmlinuz.parent().unwrap().to_path_buf();
     let (code, _out, err) = run_sudo(password, "mkdir", &["-p", boot_dir.to_str().ok_or("x")?]);
     if code != 0 {
@@ -180,20 +240,28 @@ pub fn install_kernel(
     let (code, _out, err) = run_sudo(
         password,
         "install",
-        &["-m", "0755", src_vmlinuz.to_str().ok_or("x")?, kp.vmlinuz.to_str().ok_or("x")?],
+        &[
+            "-m",
+            "0755",
+            vmlinuz_src.to_str().ok_or("x")?,
+            kp.vmlinuz.to_str().ok_or("x")?,
+        ],
     );
     if code != 0 {
-        let _ = fs::remove_dir_all(&tmp);
-        return Err(format!("Copie du vmlinuz impossible (code {}): {}", code, err.trim()));
+        return Err(format!(
+            "Copie du vmlinuz impossible (code {}): {}",
+            code,
+            err.trim()
+        ));
     }
 
     // 5. Initrd avec dracut (k = nom du dossier modules).
     let dp = std::path::Path::new("/usr/bin/dracut");
     if !dp.exists() {
         let _ = fs::remove_file(&kp.vmlinuz);
-        let _ = fs::remove_dir_all(&tmp);
         return Err("le paquet `dracut` est requis pour générer l'initrd, mais il n'est pas installé. \
-                    Sur Solus : `sudo eopkg install dracut`, puis réessayez.".to_string());
+                    Sur Solus : `sudo eopkg install dracut`, puis réessayez."
+            .to_string());
     }
     let dracut_msg = format!("Génération de l'initrd (dracut {}), c'est long …", k);
     step(5, &dracut_msg);
@@ -204,12 +272,10 @@ pub fn install_kernel(
     );
     if code != 0 {
         let _ = fs::remove_file(&kp.vmlinuz);
-        let _ = fs::remove_dir_all(&tmp);
         return Err(format!("dracut a échoué (code {}): {}", code, tail(&err)));
     }
     if !kp.initrd.exists() {
         let _ = fs::remove_file(&kp.vmlinuz);
-        let _ = fs::remove_dir_all(&tmp);
         return Err("l'initrd n'a pas été créée par dracut".into());
     }
 
@@ -234,7 +300,14 @@ pub fn install_kernel(
     let (code, _out, err) = run_sudo(
         password,
         "sh",
-        &["-c", &format!("printf '%b' '{}' | tee {} >/dev/null", escape_shell(&entry), kp.boot_entry.to_str().ok_or("x")?)],
+        &[
+            "-c",
+            &format!(
+                "printf '%b' '{}' | tee {} >/dev/null",
+                escape_shell(&entry),
+                kp.boot_entry.to_str().ok_or("x")?
+            ),
+        ],
     );
     if code != 0 {
         return Err(format!("Écriture de l'entrée boot impossible : {}", err.trim()));
@@ -252,9 +325,6 @@ pub fn install_kernel(
     // On y stocke aussi la version d'affichage (utile pour marquer
     // « installée » dans la table des versions).
     crate::sysutil::record_install(k, kind, Some(kernel_version));
-
-    // Nettoyage du tmp.
-    let _ = fs::remove_dir_all(&tmp);
 
     step(8, "Terminé ✓");
     log(&format!("Noyau {} ({}) installé ✓", kernel_version, kind.label()));
